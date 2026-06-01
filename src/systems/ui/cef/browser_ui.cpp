@@ -279,6 +279,7 @@ void BrowserRenderer::handle_browser_mouse_events(BrowserTab* tab,
                 int clicks = (imgui_btn == ImGuiMouseButton_Left) ? mouse_state.handle_mouse_click(mouse_pos, SDL_GetTicks()) : 1;
 
                 if (imgui_btn == ImGuiMouseButton_Left) mouse_state.set_mouse_down(true);
+                if (imgui_btn == ImGuiMouseButton_Right) mouse_state.set_right_down(true);
 
                 MouseUtils::send_mouse_click(browser, mouse_pos, item_pos, cef_btn, false, clicks);
             }

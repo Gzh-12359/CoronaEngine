@@ -1062,6 +1062,31 @@ bool OpticsSystem::init_vision_lazy() {
 void OpticsSystem::run_vision_frame(float frame_count, uint64_t frame_index) {
     if (!renderPipeline) return;
 
+    // After consecutive vision failures, skip rendering to avoid the
+    // exception overhead (DeadlyImportError from USD plugin loading)
+    // which would cause stuttering during camera movement
+    if (consecutive_vision_failures_ > 0) {
+        ++consecutive_vision_failures_;
+        // Re-publish last good frame if available
+        if (has_last_vision_frame_ && image_handle_ != 0) {
+            for (const auto& sc : SharedDataHub::instance().scene_storage()) {
+                if (!sc.enabled) continue;
+                for (auto ch : sc.camera_handles) {
+                    auto cam = SharedDataHub::instance().camera_storage().acquire_read(ch);
+                    if (!cam || cam->surface == nullptr) continue;
+                    if (auto* bus = context()->event_bus()) {
+                        bus->publish<Events::OpticsFrameReadyEvent>({
+                            cam->surface, image_handle_, frame_index,
+                            last_vision_frame_width_, last_vision_frame_height_});
+                    }
+                    break;
+                }
+                break;
+            }
+        }
+        return;
+    }
+
     // Detect and apply dynamic scene changes (object import/export, transform,
     // material params, per-mesh color) before rendering this frame.
     sync_vision_dynamic_scene();

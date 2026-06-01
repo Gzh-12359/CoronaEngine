@@ -1482,6 +1482,7 @@ onMounted(async () => {
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('mouseup', onMouseUp);
   document.addEventListener('contextmenu', onContextMenu);
+  document.addEventListener('wheel', handleWheel, { passive: false });
   setupListener();
 
   // 启动阶段性包菜提示：每隔一段时间根据用户操作自动弹出 AI 提示气泡
@@ -1510,5 +1511,6 @@ onUnmounted(() => {
   document.removeEventListener('mousemove', onMouseMove);
   document.removeEventListener('mouseup', onMouseUp);
   document.removeEventListener('contextmenu', onContextMenu);
+  document.removeEventListener('wheel', handleWheel);
 });
 </script>
