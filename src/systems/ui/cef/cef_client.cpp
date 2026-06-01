@@ -215,7 +215,7 @@ void OffscreenCefClient::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
     model->Clear();
 
     // 添加刷新菜单项
-    model->AddItem(MENU_ID_REFRESH, "刷新页面");
+    // model->AddItem(MENU_ID_REFRESH, "刷新页面");
 }
 
 bool OffscreenCefClient::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,

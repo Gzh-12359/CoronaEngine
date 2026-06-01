@@ -38,6 +38,9 @@ class MouseStateManager {
     void set_mouse_down(bool down) { is_left_down_ = down; }
     bool is_mouse_down() const { return is_left_down_; }
 
+    void set_right_down(bool down) { is_right_down_ = down; }
+    bool is_right_down() const { return is_right_down_; }
+
     int get_click_count() const { return click_count_; }
 
     void set_dragging(bool dragging) { is_dragging_ = dragging; }
@@ -50,6 +53,7 @@ class MouseStateManager {
     ImVec2 last_click_pos_{0, 0};
     int click_count_ = 0;
     bool is_left_down_ = false;
+    bool is_right_down_ = false;
     bool is_dragging_ = false;
 
     static constexpr Uint32 kDoubleClickTime = 500;

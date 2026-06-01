@@ -285,12 +285,16 @@ void BrowserRenderer::handle_browser_mouse_events(BrowserTab* tab,
         }
 
         if (ImGui::IsMouseReleased(imgui_btn)) {
-            bool was_down = (imgui_btn == ImGuiMouseButton_Left && mouse_state.is_mouse_down());
-            if (is_hovered || (was_down && is_active)) {
+            bool left_down = (imgui_btn == ImGuiMouseButton_Left && mouse_state.is_mouse_down());
+            bool right_down = (imgui_btn == ImGuiMouseButton_Right && mouse_state.is_right_down());
+            if (is_hovered || (left_down && is_active) || (right_down && is_active)) {
                 MouseUtils::send_mouse_click(browser, mouse_pos, item_pos, cef_btn, true, 1);
                 if (imgui_btn == ImGuiMouseButton_Left) {
                     mouse_state.set_mouse_down(false);
                     mouse_state.set_dragging(false);
+                }
+                if (imgui_btn == ImGuiMouseButton_Right) {
+                    mouse_state.set_right_down(false);
                 }
             }
         }
@@ -301,7 +305,7 @@ void BrowserRenderer::handle_browser_mouse_events(BrowserTab* tab,
     process_button(ImGuiMouseButton_Middle, MBT_MIDDLE);
 
     // 2. 处理移动事件
-    if (is_hovered || mouse_state.is_mouse_down()) {
+    if (is_hovered || mouse_state.is_mouse_down() || mouse_state.is_right_down()) {
         MouseUtils::send_mouse_move(browser, mouse_pos, item_pos, !is_hovered);
 
         if (mouse_state.is_mouse_down()) {
