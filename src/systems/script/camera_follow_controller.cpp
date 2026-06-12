@@ -2,6 +2,9 @@
 
 #include <corona/kernel/core/i_logger.h>
 #include <corona/shared_data_hub.h>
+#include <corona/kernel/core/kernel_context.h>
+#include <corona/kernel/event/i_event_bus.h>
+#include <corona/events/input_events.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -32,6 +35,13 @@ void CameraFollowController::clear_target() {
     actor_handle_ = 0;
     camera_handle_ = 0;
     rmb_down_ = false;
+    // unsubscribe if subscribed
+    if (key_sub_id_ != 0) {
+        if (auto bus = Kernel::KernelContext::instance().event_bus()) {
+            bus->unsubscribe(key_sub_id_);
+        }
+        key_sub_id_ = 0;
+    }
     CFW_LOG_INFO("CameraFollowController: target cleared");
 }
 
@@ -40,9 +50,49 @@ bool CameraFollowController::is_active() const {
 }
 
 void CameraFollowController::inject_key(int vk_code, bool down) {
-    // Key injection from Vue/CEF for Blockly script input — handled in Phase 3
-    (void)vk_code;
-    (void)down;
+    // Simple mapping: when arrow keys are pressed, apply small translation to the followed actor
+    // Only act on key down events
+    if (!down) return;
+
+    // Read actor position and modify similarly to WASD logic
+    auto& hub = SharedDataHub::instance();
+    std::vector<std::uintptr_t> profile_handles;
+    if (auto actor = hub.actor_storage().try_acquire_read(actor_handle_)) {
+        profile_handles = actor->profile_handles;
+    }
+    if (profile_handles.empty()) return;
+
+    // Resolve transform handle for first profile with transform
+    std::uintptr_t transform_handle = 0;
+    for (const auto profile_handle : profile_handles) {
+        if (auto profile = hub.profile_storage().try_acquire_read(profile_handle)) {
+            if (profile->geometry_handle != 0) {
+                if (auto geo = hub.geometry_storage().try_acquire_read(profile->geometry_handle)) {
+                    if (geo->transform_handle != 0) {
+                        transform_handle = geo->transform_handle;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (transform_handle == 0) return;
+
+    if (auto transform = hub.model_transform_storage().try_acquire_write(transform_handle)) {
+        float step = 0.5f;
+        // VK codes: left=0x25, up=0x26, right=0x27, down=0x28
+        ktm::fvec3 pos = transform->position;
+        if (vk_code == 0x25) { // left
+            pos.x -= step;
+        } else if (vk_code == 0x27) { // right
+            pos.x += step;
+        } else if (vk_code == 0x26) { // up
+            pos.z -= step;
+        } else if (vk_code == 0x28) { // down
+            pos.z += step;
+        }
+        transform->position = pos;
+    }
 }
 
 void CameraFollowController::inject_rmb(bool down, int screen_x, int screen_y) {
@@ -72,6 +122,25 @@ ktm::fvec3 CameraFollowController::cross(const ktm::fvec3& a, const ktm::fvec3& 
 void CameraFollowController::update(float delta_time) {
     if (!active_ || actor_handle_ == 0 || camera_handle_ == 0) {
         return;
+    }
+
+    // lazy subscribe to KeyEvent on first update
+    if (key_sub_id_ == 0) {
+        if (auto bus = Kernel::KernelContext::instance().event_bus()) {
+            key_sub_id_ = bus->subscribe<Corona::Events::KeyEvent>([this](const Corona::Events::KeyEvent& e) {
+                // Map arrow keys to VK codes and inject
+                // Common codes: ArrowLeft="ArrowLeft", ArrowRight="ArrowRight", ArrowUp="ArrowUp", ArrowDown="ArrowDown"
+                if (e.code == "ArrowLeft") {
+                    this->inject_key(0x25, e.down); // VK_LEFT
+                } else if (e.code == "ArrowRight") {
+                    this->inject_key(0x27, e.down); // VK_RIGHT
+                } else if (e.code == "ArrowUp") {
+                    this->inject_key(0x26, e.down); // VK_UP
+                } else if (e.code == "ArrowDown") {
+                    this->inject_key(0x28, e.down); // VK_DOWN
+                }
+            });
+        }
     }
 
     elapsed_since_last_log_ += delta_time;

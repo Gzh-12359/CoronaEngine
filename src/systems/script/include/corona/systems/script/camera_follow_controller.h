@@ -3,6 +3,7 @@
 #include <ktm/ktm.h>
 
 #include <cstdint>
+#include <corona/kernel/event/i_event_bus.h>
 
 namespace Corona::Systems {
 
@@ -46,6 +47,7 @@ class CameraFollowController {
     int prev_mouse_y_{0};
 
     float elapsed_since_last_log_{0.0f};
+    Kernel::EventId key_sub_id_{0};
 };
 
 }  // namespace Corona::Systems
