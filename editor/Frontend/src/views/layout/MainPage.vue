@@ -628,6 +628,7 @@ const cabbageAssistant = useCabbageAssistantStore();
 const dockShortcuts = [
   { id: 'SceneTools', label: '场景管理', icon: '景' },
   { id: 'NodeGraphPanel', label: '节点', icon: '点' },
+  { id: 'Inventory', label: '行囊', icon: '囊' },
 ];
 const dockShortcutPending = reactive(new Set());
 const isShortcutOpen = (id) => Boolean(dockStore.panels[id]?.open);

@@ -45,6 +45,7 @@ function getPanelIdFromRoute() {
     '/NodeGraph': 'NodeGraphPanel',
     '/CabbageChat': 'CabbageChatPanel',
     '/SetUp': 'EditorSettings',
+    '/Inventory': 'Inventory',
   };
   return map[path] || null;
 }

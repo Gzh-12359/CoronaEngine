@@ -140,6 +140,22 @@ export const PLUGIN_MANIFEST = [
     defaultHeight: 720,
     autoInit: false,
   },
+  {
+    id: 'Inventory',
+    routePath: '/Inventory',
+    displayNameKey: 'plugins.Inventory',
+    displayName: '行囊',
+    pageType: 'view',
+    defaultDock: 'right',
+    defaultWidth: 420,
+    defaultHeight: 660,
+    autoInit: false,
+    defaultOpenMode: 'docked',
+    defaultFloatPosition: 'right_top',
+    minFloatWidth: 380,
+    minFloatHeight: 520,
+    floatingPriority: 20,
+  },
 ];
 
 /** 按 id 快速查找 */
