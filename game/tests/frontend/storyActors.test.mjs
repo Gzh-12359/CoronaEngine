@@ -323,29 +323,29 @@ test('every versioned role is created with its placement marker in one call', as
   assert.deepEqual(repairs.map(call => call[1]), [STORY_CHARACTERS[3].guid]);
 });
 
-test('main hides NPCs; child reuses only prophet; corrected dragon bounds stay grounded', async () => {
+test('main hides NPCs and keeps the whole cast; child removes the copied cast and keeps player + prophet', async () => {
   for (const role of ['main', 'child']) {
     const actors = STORY_CHARACTERS.map(c => actorFixture(c));
     actors[1].geometry.rotation = [Math.PI / 2, Math.PI, 0];
     actors[2].geometry.position = [-4, 0, 4]; actors[3].geometry.position = [4, 0, 4];
     const f = apiFixture({ actors });
     await load(f, { gameplay: { role, state: { boss: { hp: 200 }, drop: null } } });
-    assert.deepEqual(f.get(STORY_CHARACTERS[2].guid).geometry.position.filter((_, i) => i !== 1), [-4, 4]);
     assert.deepEqual(f.get(STORY_CHARACTERS[3].guid).geometry.position.filter((_, i) => i !== 1), [4, 4]);
     assert.equal(f.calls.filter(call => call[0] === 'create').length, 0);
-    // Every character exists in both worlds; the role decides which are visible, not which
-    // are created (a world keeps the whole cast so a swap of world never re-imports art).
-    assert.equal(f.state.actors.length, STORY_CHARACTERS.length);
-    assert.equal(f.get(STORY_CHARACTERS[2].guid).visible, false);
-    assert.equal(f.get(STORY_CHARACTERS[3].guid).visible, role === 'child');
-    // Creatures inhabit the main world and only the main world. They are deliberately NOT tied
-    // to `boss.hp` (this load reports hp 200, but a dead boss must not empty the arena), so
-    // the assertion below is about the world's role alone.
-    for (const monster of MONSTERS) {
-      assert.equal(f.get(monster.guid).visible, role === 'main', monster.role);
-    }
-    const boss = f.get(STORY_CHARACTERS[1].guid);
     if (role === 'main') {
+      // The main world keeps the whole cast; the role decides which are visible, not which
+      // are created (a world keeps the whole cast so a swap of world never re-imports art).
+      assert.deepEqual(f.get(STORY_CHARACTERS[2].guid).geometry.position.filter((_, i) => i !== 1), [-4, 4]);
+      assert.equal(f.state.actors.length, STORY_CHARACTERS.length);
+      assert.equal(f.get(STORY_CHARACTERS[2].guid).visible, false);
+      assert.equal(f.get(STORY_CHARACTERS[3].guid).visible, false);
+      // Creatures inhabit the main world and only the main world. They are deliberately NOT tied
+      // to `boss.hp` (this load reports hp 200, but a dead boss must not empty the arena), so
+      // the assertion below is about the world's role alone.
+      for (const monster of MONSTERS) {
+        assert.equal(f.get(monster.guid).visible, true, monster.role);
+      }
+      const boss = f.get(STORY_CHARACTERS[1].guid);
       // Asserted against the table, not a literal: the boss's rotation is a property of the
       // shipped model (the dragon's was [pi/2, 0, 0] because its own AABB is x/y-flat), so a
       // hard-coded value here turns every future art swap into a test failure that says
@@ -353,7 +353,15 @@ test('main hides NPCs; child reuses only prophet; corrected dragon bounds stay g
       assert.deepEqual(boss.geometry.rotation, [...STORY_CHARACTERS[1].rotation]);
       const bounds = rotatedBounds(boss.local_aabb, boss.geometry.rotation);
       assert.ok(Math.abs(bounds[1] * boss.geometry.scale[1] + boss.geometry.position[1]) < 1e-9);
-    } else assert.equal(boss.visible, false);
+    } else {
+      // 小世界只保留玩家与先知；Boss、商人、怪物从副本中删除，而不是仅隐藏。
+      const kept = STORY_CHARACTERS.filter(character => ['player', 'prophet'].includes(character.role));
+      const removed = STORY_CHARACTERS.filter(character => !['player', 'prophet'].includes(character.role));
+      assert.deepEqual(f.state.actors.map(actor => actor.actor_guid).sort(),
+        kept.map(character => character.guid).sort());
+      for (const character of kept) assert.equal(f.get(character.guid).visible, true, character.role);
+      for (const character of removed) assert.equal(f.get(character.guid), undefined, character.role);
+    }
   }
 });
 
@@ -389,7 +397,7 @@ test('each character reaches real render readiness before the next character is 
   assert.deepEqual(f.calls.filter(c => c[0] === 'create').map(c => c[1]), INHABITANTS.map(c => c.guid));
 });
 
-test('gameplay visibility leaves unrelated scene models untouched', async () => {
+test('gameplay visibility: main leaves unrelated models untouched, child removes them', async () => {
   const scenery = [undefined, 'model', 'actor', 'audio', 'ui'].map((actor_type, index) => ({
     ...actorFixture(), actor_guid: `scenery-${index}`, actor_type,
   }));
@@ -397,11 +405,50 @@ test('gameplay visibility leaves unrelated scene models untouched', async () => 
   for (const role of ['main', 'child']) for (const combatOnly of [false, true]) {
     const f = apiFixture({ actors: [...scenery, ...STORY_CHARACTERS.map(c => actorFixture(c))] });
     await load(f, { gameplay: { role, state: { boss: { hp: 200 }, drop: null } }, combatOnly });
-    for (const actor of scenery) assert.deepEqual(f.get(actor.actor_guid), actor);
-    assert.ok(f.calls.every(call => !scenery.some(actor => actor.actor_guid === call[1])));
-    assert.equal(f.get(STORY_CHARACTERS[2].guid).visible, false);
-    assert.equal(f.get(STORY_CHARACTERS[1].guid).visible, role === 'main');
     assert.equal(f.get(STORY_CHARACTERS[3].guid).visible, role === 'child');
+    if (role === 'main') {
+      assert.equal(f.get(STORY_CHARACTERS[2].guid).visible, false);
+      assert.equal(f.get(STORY_CHARACTERS[1].guid).visible, true);
+      // 主世界只管理游戏拥有的角色：场景杂物与用户自建模型保持原样。
+      for (const actor of scenery) assert.deepEqual(f.get(actor.actor_guid), actor);
+      assert.ok(f.calls.every(call => !scenery.some(actor => actor.actor_guid === call[1])));
+    } else {
+      // 小世界把复制来的 Boss、商人与杂物全部删除，场景只留自己的阵容。
+      assert.equal(f.get(STORY_CHARACTERS[2].guid), undefined);
+      assert.equal(f.get(STORY_CHARACTERS[1].guid), undefined);
+      for (const actor of scenery) assert.equal(f.get(actor.actor_guid), undefined, actor.actor_guid);
+    }
+  }
+});
+
+test('child prunes copied models but keeps map, player, prophet, cube and exhibits; main never prunes', async () => {
+  const map = { ...actorFixture(), actor_guid: 'corona.story.world-map.v1',
+    model_ref: 'corona.story.world-map.v2', entity_id: 'story.world.map', entity_type: 'story_scenery' };
+  const cube = { ...actorFixture(), actor_guid: 'story.prophet.cube' };
+  const placement = { ...actorFixture(), actor_guid: 'story.placement.0000' };
+  const copied = [map, cube, placement,
+    { ...actorFixture(), actor_guid: 'copied-chair' },
+    { ...actorFixture(), actor_guid: 'copied-bottle', visible: false }];
+  const cast = STORY_CHARACTERS.map(c => actorFixture(c));
+  // 主世界：全部保留（包括场景杂物），只调整游戏角色的可见性。
+  const main = apiFixture({ actors: [...copied, ...cast] });
+  await load(main, { gameplay: { role: 'main', state: { boss: { hp: 200 }, drop: null } } });
+  for (const actor of copied) assert.deepEqual(main.get(actor.actor_guid), actor, actor.actor_guid);
+  for (const character of cast) assert.ok(main.get(character.actor_guid), character.role);
+  assert.ok(main.calls.every(call => !['copied-chair', 'copied-bottle'].includes(call[1])),
+    '主世界不删除任何复制模型');
+  // 小世界：只保留地图、玩家、先知、方块与陈列物，其余（杂物与主世界角色）全部删除。
+  const prophetGuid = STORY_CHARACTERS.find(character => character.role === 'prophet').guid;
+  const child = apiFixture({ actors: [...copied, ...cast] });
+  await load(child, { gameplay: { role: 'child', state: { boss: { hp: 0 }, drop: null } } });
+  for (const kept of [map, cube, placement, PLAYER_GUID, prophetGuid]) {
+    const actor = typeof kept === 'string' ? child.get(kept) : child.get(kept.actor_guid);
+    assert.ok(actor, typeof kept === 'string' ? kept : kept.actor_guid);
+  }
+  assert.equal(child.get('copied-chair'), undefined, '杂物被删除');
+  assert.equal(child.get('copied-bottle'), undefined, '不可见的杂物也被删除');
+  for (const character of STORY_CHARACTERS.filter(c => !['player', 'prophet'].includes(c.role))) {
+    assert.equal(child.get(character.guid), undefined, character.role);
   }
 });
 

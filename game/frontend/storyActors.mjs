@@ -2,6 +2,8 @@ import { FRAGMENT_GUID } from './storyGameplay.mjs';
 import { PLACEMENT_PREFIX, placementScene } from './storyProps.mjs';
 import { STORY_CHARACTERS, PLAYER_GUID, BOSS_MODEL_REF, PLAYER_MODEL_REF, PROPHET_MODEL_REF, PLAYER_MODEL_YAW_OFFSET, isMonsterRole, unwrap, sceneSnapshot, resolveStoryAssetPath,
   characterTransform, rotatedBounds, hasUsableBounds } from './storyCharacters.mjs';
+import { isMapActor } from './storyMap.mjs';
+import { CUBE_GUID } from './storyCube.mjs';
 import { heightAt } from './storyMapHeight.mjs';
 import { PROPHET_PLACEMENT } from './storyDialogue.mjs';
 
@@ -54,6 +56,39 @@ async function removeActorForRebuild(api, sceneId, actor, operation, submit) {
 const sameVector = (a, b) => Array.isArray(a) && a.length === b.length
   && a.every((value, i) => Math.abs(value - b[i]) < 1e-5);
 
+/**
+ * The actors a small world keeps, by identity: the player, the prophet and the cube beside
+ * the prophet. The map and the exhibits are recognised by their own identity predicates
+ * (`isMapActor`, the `story.placement.` guid prefix) because they are not cast members.
+ */
+const PROPHET_GUID = STORY_CHARACTERS.find(character => character.role === 'prophet').guid;
+const SUBWORLD_KEEP_GUIDS = new Set([PLAYER_GUID, PROPHET_GUID, CUBE_GUID]);
+
+/**
+ * A small world keeps only its own cast: the map it stands on, the player, the prophet,
+ * the cube beside the prophet, and the exhibits the player placed. Everything else the
+ * copy inherited from the main world — the boss and the main-world creatures, the
+ * merchant, the retired red-ball actor, and any scenery or user-authored model — is
+ * removed, so the small world carries exactly what its play needs and nothing more.
+ *
+ * Identity is read from fields no other actor carries, never from a display name, so a
+ * renamed or translated model can never be kept by mistake. The main world is never
+ * pruned (this only runs for `role === 'child'`), and the small world is an independent
+ * copy, so removal here can never touch the main world's scene. The removal is durable
+ * (the engine persists the scene), so a pruned small world stays clean on later entries;
+ * a clean scene walks the loop without a single write.
+ */
+async function pruneSmallWorldModels({ api, sceneId, actors, call }) {
+  for (const actor of [...actors.values()]) {
+    if (isMapActor(actor)) continue;
+    const guid = actor?.actor_guid;
+    if (typeof guid === 'string'
+      && (SUBWORLD_KEEP_GUIDS.has(guid) || guid.startsWith(PLACEMENT_PREFIX))) continue;
+    await call('移除小世界多余模型', () => api.sceneTools.removeActor(sceneId, actor.actor_guid));
+    actors.delete(guid);
+  }
+}
+
 // Keep the real resource work inside the host's existing world-session barrier,
 // including on cancellation. Readiness polling never submits overlapping reads.
 async function waitForStoryResources({ api, projectPath, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }, allowFailed = false) {
@@ -92,6 +127,11 @@ async function initializeStoryCharacters({ api, sceneId, frontendUrl, isCurrent 
   let snapshot = sceneSnapshot(await api.scene.getSnapshot(sceneId));
   check();
   const actors = new Map((snapshot?.actors || []).map(actor => [actor.actor_guid, actor]));
+  // 小世界只保留自己的阵容：地图、玩家、先知、先知旁方块与已摆放的陈列物。
+  // 从主世界复制来的 Boss/怪物/商人、旧红球与其他模型在这里删除（副本独立，不影响主世界）。
+  if (gameplay?.role === 'child') {
+    await pruneSmallWorldModels({ api, sceneId, actors, call });
+  }
   // Creatures belong to the main world and are NOT gated on `boss.hp`, unlike the boss: they
   // are the arena's other monsters, so killing the boss must not empty the arena. The small
   // world keeps its own cast (player + prophet), which is why this branch names 'main'.

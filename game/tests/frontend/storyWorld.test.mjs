@@ -204,7 +204,12 @@ async function fixture(t, options = {}) {
   const poses = new Map([[MAIN, pose([1, 2, 3])], [CHILD, pose([5, 6, 7])]]);
   // Built from the fixture's table, which is where the boss's shipped placement lives:
   // this page defines it locally, so a literal list here drifts the moment the art moves.
-  const actors = new Map([MAIN, CHILD].map(path => [path, [...CHARACTER_BY_GUID.values()].map(actorFixture)]));
+  // 小世界不携带主世界的其余角色：进入小世界时会把复制来的 Boss/怪物/商人等清掉，
+  // 场景基准就是玩家与先知（地图、方块、陈列物由页面创建）。
+  const actors = new Map([
+    [MAIN, [...CHARACTER_BY_GUID.values()].map(actorFixture)],
+    [CHILD, STORY_CHARACTERS.filter(c => ['player', 'prophet'].includes(c.role)).map(actorFixture)],
+  ]);
   function surface() {
     const listeners = new Map();
     return {
@@ -798,7 +803,9 @@ test('half-jump inventory travel saves ground and the corrected model once, pres
   assert.deepEqual(saved.rotation, airborne.rotation);
   const savedCamera = structuredClone(f.poses.get(MAIN));
   page = f.mount(); await page.mount();
-  assert.equal(page.instance.bossNearby.value, false); assert.equal(f.actors.get(CHILD)[1].visible, false);
+  assert.equal(page.instance.bossNearby.value, false);
+  assert.ok(!f.actors.get(CHILD).some(actor => actor.actor_guid === STORY_CHARACTERS[1].guid),
+    '小世界不再携带 Boss');
   clickWorld(page); await turn();
   page = f.mount(); await page.mount();
   const restored = page.instance.camera.snapshotPlayer();
