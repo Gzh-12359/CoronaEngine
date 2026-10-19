@@ -1,4 +1,18 @@
+<<<<<<< HEAD
 import { defineAsyncComponent } from 'vue';
+=======
+import SceneBar from '@/views/sidebar/SceneBar.vue';
+import ObjectPanel from '@/views/sidebar/Object.vue';
+import Pet from '@/views/tools/Pet.vue';
+import LogView from '@/views/sidebar/LogView.vue';
+import FileManager from '@/views/sidebar/FileManager.vue';
+import ProjectSettings from '@/views/sidebar/ProjectSettings.vue';
+import NodeGraphPanel from '@/views/sidebar/NodeGraphPanel.vue';
+import CabbageChatPanel from '@/views/sidebar/CabbageChatPanel.vue';
+import EditorSettings from '@/views/sidebar/EditorSettings.vue';
+import InventoryPanel from '@/views/sidebar/InventoryPanel.vue';
+import LightFieldCalibrationPanel from '@/components/panels/LightFieldCalibrationPanel.vue';
+>>>>>>> 0adc3f8ee294a9f56a3c5d4f6cc6a5effc0c7c3a
 
 /**
  * Vue component owner for panels declared by config/pluginManifest.js.
@@ -39,6 +53,7 @@ export const PANEL_COMPONENTS = Object.freeze({
   NodeGraphPanel,
   CabbageChatPanel,
   EditorSettings,
+  Inventory: InventoryPanel,
 });
 
 export function getPluginComponent(id) {

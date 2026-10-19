@@ -266,20 +266,24 @@ test('a dead boss is hidden and the old red-ball actor is retired, never created
   assert.equal(fresh.get(FRAGMENT_GUID), undefined, '主世界不再创建世界碎片 actor');
 });
 
-test('child hides copied boss and legacy fragment and never creates either', async () => {
+test('child removes copied boss, merchant, monsters and legacy fragment; never creates them', async () => {
   const f = apiFixture({ actors: [...STORY_CHARACTERS.map(c => actorFixture(c)),
     actorFixture(LEGACY_FRAGMENT)] });
   await ensureStoryCharacters({ api: f.api, sceneId: 'scene.ini', frontendUrl: url,
     gameplay: { role: 'child', state: { boss: { hp: 200 }, drop: null } } });
-  assert.equal(f.get(STORY_CHARACTERS[1].guid).visible, false);
-  assert.equal(f.get(FRAGMENT_GUID).visible, false);
+  // 小世界只保留玩家与先知：从主世界副本继承的 Boss、商人、怪物与旧红球一律删除，
+  // 而不是仅隐藏——副本独立，删除不影响主世界。
+  const childCast = STORY_CHARACTERS.filter(character => ['player', 'prophet'].includes(character.role));
+  const copiedCast = STORY_CHARACTERS.filter(character => !['player', 'prophet'].includes(character.role));
+  for (const character of copiedCast) assert.equal(f.get(character.guid), undefined, character.role);
+  assert.equal(f.get(FRAGMENT_GUID), undefined, '旧红球不在小世界');
+  assert.equal(f.state.actors.length, childCast.length);
   assert.equal(f.calls.filter(c => c[0] === 'create').length, 0);
   const empty = apiFixture();
   await ensureStoryCharacters({ api: empty.api, sceneId: 'scene.ini', frontendUrl: url,
     gameplay: { role: 'child', state: { boss: { hp: 0 }, drop: null } } });
   // A small world is the player and the prophet. The boss and the merchant belong to the main
   // world, so neither is created here.
-  const childCast = STORY_CHARACTERS.filter(character => ['player', 'prophet'].includes(character.role));
   assert.equal(empty.calls.filter(c => c[0] === 'create' && !c[4].skip_if_exists).length, childCast.length);
   assert.equal(empty.state.actors.length, childCast.length);
   assert.equal(empty.get(STORY_CHARACTERS[1].guid), undefined);
