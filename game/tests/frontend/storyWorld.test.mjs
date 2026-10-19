@@ -1729,6 +1729,9 @@ test('the small world takes a placed block back: the 取回 prompt, F removes it
 // 「调整」子屏只回一句「先装填该碎片再调整」，按 1-4 一个字节都不写盘。这里断言规则随世界回来、
 // 按 1 后新数字既落盘又真的交给了规则引擎（而不是「改了但看不出来」）。
 test('a saved fragment rule comes back with the world, and 1 in 调整 reaches the sway runner', async t => {
+  // cube 已从子世界移除：legacy（无 target）规则自动作用在所有可调物体上，
+  // 所以按 B 放一件陈列物作为规则目标即可，不需要给规则写死 target。
+  const targetGuid = storyPropsModule.placementGuid(0);
   let rules = { version: 1, rules: [{ fragmentId: 'sway', type: 'sway', axis: 'x', amplitude: 0.25, periodMs: 2400 }] };
   const saved = [];
   const f = await fixture(t, {
@@ -1739,38 +1742,46 @@ test('a saved fragment rule comes back with the world, and 1 in 调整 reaches t
         rules = { version: 1, rules: structuredClone(request.rules) };
         return { status: 'ok', role: 'child', state: structuredClone(rules) };
       }
+      if (request.action === 'savePlacements') {
+        return { status: 'ok', role: 'child',
+          state: { version: 1, placements: structuredClone(request.placements) } };
+      }
       return { status: 'ok', role: activePath === MAIN ? 'main' : 'child', config: gameplayConfig,
         state: { version: 2, revision: 0, rage: 0, boss: { hp: 0 }, drop: null,
           inventory: { worldFragment: 1, block: 64 } } };
     },
   });
   let page = f.mount(); await page.mount(); await turn();
-  clickWorld(page); await turn(); await turn();
-  page = f.mount(); await page.mount(); await turn(); await turn();
+  page = await enterChild(f, page);
+  const p = () => page.instance;
+  // 放一件陈列物作为 legacy 规则的作用目标。
+  p().onKeyDown(event({ code: 'KeyB', key: 'b' }));
+  for (let step = 0; step < 3; step++) await turn();
+  p().applyWorldRules(await editorApi.scene.getSnapshot());
 
-  assert.deepEqual(page.instance.installedRules.value.map(rule => [rule.amplitude, rule.periodMs]),
+  assert.deepEqual(p().installedRules.value.map(rule => [rule.amplitude, rule.periodMs]),
     [[0.25, 2400]], '已装填的碎片必须随世界回来');
-  assert.equal(page.instance.worldRuleRunner.isRunning(), true, '规则引擎按保存的数字运行');
+  assert.equal(p().worldRuleRunner.isRunning(), true, '规则引擎按保存的数字运行');
   // 「碎片」屏上的「调整」行：子屏必须认出这块碎片已装填，并显示盘上的数字（而不是退回目录默认值）。
-  page.instance.dialogueOpen.value = true;
-  page.instance.openFragmentAdjust(page.instance.fragmentList.value[0]);
-  assert.equal(page.instance.prophetScreen.value, 'fragment-adjust');
-  assert.equal(page.instance.fragmentAdjust.value.installed, true);
-  assert.match(page.instance.fragmentAdjust.value.amplitudeLabel, /0\.25/);
+  p().dialogueOpen.value = true;
+  p().openFragmentAdjust(p().fragmentList.value[0]);
+  assert.equal(p().prophetScreen.value, 'fragment-adjust');
+  assert.equal(p().fragmentAdjust.value.installed, true);
+  assert.match(p().fragmentAdjust.value.amplitudeLabel, /0\.25/);
 
   // 「调整」子屏上按 1：先落盘，再把新数字交给正在运行的规则引擎。
   const captured = [];
-  const runner = page.instance.worldRuleRunner;
+  const runner = p().worldRuleRunner;
   const original = runner.setRules;
   runner.setRules = list => { captured.push(structuredClone(list)); return original(list); };
-  page.instance.onKeyDown(event({ code: 'Digit1', key: '1' }));
+  p().onKeyDown(event({ code: 'Digit1', key: '1' }));
   await turn(); await turn();
   assert.deepEqual(saved, [[{ fragmentId: 'sway', type: 'sway', axis: 'x', amplitude: 0.3, periodMs: 2400 }]],
     '幅度 0.25 + 0.05 必须落盘');
   assert.deepEqual(captured.at(-1), [{ type: 'sway', axis: 'x', amplitude: 0.3, periodMs: 2400,
     excludeRoles: ['player'] }], '规则引擎收到的是新幅度');
-  assert.match(page.instance.actionFeedback.value, /0\.30/);
-  assert.equal(page.instance.worldRuleRunner.isRunning(), true);
+  assert.match(p().actionFeedback.value, /0\.30/);
+  assert.equal(p().worldRuleRunner.isRunning(), true);
 });
 
 // 地图（山门神殿）必须像角色和方块一样随「进入世界」出现，而不是只在新世界里存在：
@@ -2384,23 +2395,30 @@ test('空格在小世界里抬高相机（自由与俯视），面板打开时�
 });
 
 test('碎片规则不写先知：正常物体照常浮动，先知一个字节都没有', async t => {
+  // cube 已从子世界移除：用一件陈列物作为被规则浮动的「正常物体」。
+  const targetGuid = storyPropsModule.placementGuid(0);
   const rules = { version: 1, rules: [{ fragmentId: 'sway', type: 'sway', axis: 'x',
-    amplitude: 0.25, periodMs: 2400 }] };
-  const f = await fixture(t, { documents: { loadWorldRules: rules }, gameplay: childGameplay() });
+    amplitude: 0.25, periodMs: 2400, target: targetGuid }] };
+  const f = await fixture(t, { documents: { loadWorldRules: rules }, gameplay: placementAware() });
   let page = f.mount(); await page.mount(); await turn();
   page = await enterChild(f, page);
+  const p = () => page.instance;
+  // 放一件陈列物，让目标表里真的有这个物体。
+  p().onKeyDown(event({ code: 'KeyB', key: 'b' }));
+  for (let step = 0; step < 3; step++) await turn();
   const actorOf = guid => f.actors.get(CHILD).find(actor => actor.actor_guid === guid);
   const prophet = actorOf(PROPHET_GUID);
-  const cube = actorOf(storyCubeModule.CUBE_GUID);
+  const target = actorOf(targetGuid);
   const map = actorOf(storyMapModule.MAP_GUID);
-  assert.ok(prophet && cube && map, '先知、方块、地图都在小世界里');
+  assert.ok(prophet && target && map, '先知、陈列物、地图都在小世界里');
+  p().applyWorldRules(await editorApi.scene.getSnapshot());
   assert.equal(page.instance.worldRuleRunner.isRunning(), true, '规则按保存的碎片跑起来');
 
   const writes = () => f.calls.filter(call => call[0] === 'actorTransform');
   const start = writes().length;
   for (let i = 0; i < 5; i++) f.step(50);
   const fresh = writes().slice(start);
-  assert.ok(fresh.some(call => call[1] === cube.handle), '方块照常被浮动：否则这条用例证明不了什么');
+  assert.ok(fresh.some(call => call[1] === target.handle), '陈列物照常被浮动：否则这条用例证明不了什么');
   assert.deepEqual(fresh.filter(call => call[1] === prophet.handle), [], '先知一个字节都不写');
   assert.deepEqual(fresh.filter(call => call[1] === map.handle), [], '地图仍然零写入');
 
@@ -2408,40 +2426,42 @@ test('碎片规则不写先知：正常物体照常浮动，先知一个字节�
   const listed = storyProphetActionsModule.selectableObjects(
     { data: { scene: { actors: f.actors.get(CHILD) } } }).map(entry => entry.guid);
   assert.ok(!listed.includes(PROPHET_GUID), '先知不在可调物体列表里');
-  assert.ok(listed.includes(storyCubeModule.CUBE_GUID), '方块才是可调物体');
+  assert.ok(listed.includes(targetGuid), '陈列物才是可调物体');
 });
 
 /* ---------------------------------------------------------------
    碎片改为可作用于单独物体：盘上的 target 一直走到帧循环，且只动它自己那个物体。
    --------------------------------------------------------------- */
 test('带目标的碎片规则只动自己的物体：另一件没规则的物体一个字节都不写', async t => {
-  const spinTarget = storyPropsModule.placementGuid(0);
-  const bystander = storyPropsModule.placementGuid(1);
-  // 两条规则各指一个物体：浮动 → 先知方块，旋转 → 第一件陈列物。第二件陈列物没有任何规则。
+  const swayTarget = storyPropsModule.placementGuid(0);
+  const spinTarget = storyPropsModule.placementGuid(1);
+  const bystander = storyPropsModule.placementGuid(2);
+  // 两条规则各指一件陈列物：浮动 → 第 0 件，旋转 → 第 1 件。第 2 件没有任何规则。
+  // cube 已从子世界移除，规则目标全部是玩家摆放的陈列物。
   const rules = { version: 1, rules: [
     { fragmentId: 'sway', type: 'sway', axis: 'x', amplitude: 0.25, periodMs: 2400,
-      target: storyCubeModule.CUBE_GUID },
+      target: swayTarget },
     { fragmentId: 'spin', type: 'spin', axis: 'z', amplitude: 15, periodMs: 3600, target: spinTarget },
   ] };
   const f = await fixture(t, { documents: { loadWorldRules: rules }, gameplay: placementAware() });
   let page = f.mount(); await page.mount(); await turn();
   page = await enterChild(f, page);
   const p = () => page.instance;
-  // 放两件方块：布局是权威来源，场景里的 actor 由既有 reconcile 路径创建（guid = 序号）。
-  for (let i = 0; i < 2; i++) {
+  // 放三件陈列物：布局是权威来源，场景里的 actor 由既有 reconcile 路径创建（guid = 序号）。
+  for (let i = 0; i < 3; i++) {
     p().onKeyDown(event({ code: 'KeyB', key: 'b' }));
     for (let step = 0; step < 3; step++) await turn();
   }
-  assert.deepEqual(p().placements.value.map(entry => entry.index), [0, 1], '两件方块都落盘了');
+  assert.deepEqual(p().placements.value.map(entry => entry.index), [0, 1, 2], '三件陈列物都落盘了');
   const actorOf = guid => f.actors.get(CHILD).find(actor => actor.actor_guid === guid);
-  const cube = actorOf(storyCubeModule.CUBE_GUID);
+  const sway = actorOf(swayTarget);
   const spun = actorOf(spinTarget);
   const idle = actorOf(bystander);
   const prophet = actorOf(PROPHET_GUID);
   const map = actorOf(storyMapModule.MAP_GUID);
-  assert.ok(cube && spun && idle && prophet && map, '方块、两件陈列物、先知与地图都在小世界里');
+  assert.ok(sway && spun && idle && prophet && map, '三件陈列物、先知与地图都在小世界里');
 
-  // 目标表是进入世界那一刻的快照：按当前场景再起一次规则，让两件陈列物都进目标表。
+  // 目标表是进入世界那一刻的快照：按当前场景再起一次规则，让三件陈列物都进目标表。
   p().applyWorldRules(await editorApi.scene.getSnapshot());
   assert.equal(p().worldRuleRunner.isRunning(), true, '规则跑起来了');
   assert.equal(p().worldRuleRunner.animatedCount(), 2, '只有带规则的两件物体进动画集合');
@@ -2451,20 +2471,20 @@ test('带目标的碎片规则只动自己的物体：另一件没规则的物�
   for (let i = 0; i < 6; i++) f.step(50);
   const fresh = writes().slice(start);
   const forHandle = handle => fresh.filter(call => call[1] === handle);
-  // 方块：被自己的浮动规则写入位置，旋转保持基准（旋转规则没有指向它）。
-  const cubePos = forHandle(cube.handle).filter(call => call[2] === 0);
-  const cubeRot = forHandle(cube.handle).filter(call => call[2] === 1);
-  assert.ok(cubePos.length > 0, '方块照常被自己的规则浮动');
-  assert.ok(cubePos.some(call => Math.abs(call[3][0] - cube.geometry.position[0]) > 1e-9),
-    '方块的位置真的被浮动了，不只是写回基准');
-  assert.ok(cubeRot.every(call => call[3][2] === 0), '方块的旋转一直是基准：旋转规则没串过来');
-  // 第一件陈列物：位置一直是自己的基准位（浮动规则不是写给它的），旋转却真的在转。
+  // 第 0 件陈列物：被自己的浮动规则写入位置，旋转保持基准（旋转规则没有指向它）。
+  const swayPos = forHandle(sway.handle).filter(call => call[2] === 0);
+  const swayRot = forHandle(sway.handle).filter(call => call[2] === 1);
+  assert.ok(swayPos.length > 0, '第 0 件照常被自己的规则浮动');
+  assert.ok(swayPos.some(call => Math.abs(call[3][0] - sway.geometry.position[0]) > 1e-9),
+    '第 0 件的位置真的被浮动了，不只是写回基准');
+  assert.ok(swayRot.every(call => call[3][2] === 0), '第 0 件的旋转一直是基准：旋转规则没串过来');
+  // 第 1 件陈列物：位置一直是自己的基准位（浮动规则不是写给它的），旋转却真的在转。
   const spunPos = forHandle(spun.handle).filter(call => call[2] === 0);
   const spunRot = forHandle(spun.handle).filter(call => call[2] === 1);
   assert.ok(spunPos.length > 0, '它有自己的规则，所以每帧仍有一次位置写入（合成值就是基准位）');
   assert.ok(spunPos.every(call => call[3][0] === spun.geometry.position[0]
     && call[3][1] === spun.geometry.position[1]
-    && call[3][2] === spun.geometry.position[2]), '它的位置一直是自己的基准位：方块的浮动没有串过来');
+    && call[3][2] === spun.geometry.position[2]), '它的位置一直是自己的基准位：浮动规则没有串过来');
   assert.ok(spunRot.some(call => Math.abs(call[3][2]) > 1e-9), '它被自己的旋转规则转动');
   // 没有规则的陈列物、先知、地图：一个字节都没有。
   assert.deepEqual(forHandle(idle.handle), [], '没有规则的物体一次都没被写');
@@ -2496,6 +2516,10 @@ test('「碎片」屏先选目标物体再装填：落盘的规则带着那个�
   let page = f.mount(); await page.mount(); await turn();
   page = await enterChild(f, page);
   const p = () => page.instance;
+  // cube 已从子世界移除：先按 B 放一件陈列物，作为可选目标。
+  const targetGuid = storyPropsModule.placementGuid(0);
+  p().onKeyDown(event({ code: 'KeyB', key: 'b' }));
+  for (let step = 0; step < 3; step++) await turn();
   const collectNodes = (node, predicate, found = []) => {
     if (Array.isArray(node)) { for (const child of node) collectNodes(child, predicate, found); return found; }
     if (!node || typeof node !== 'object') return found;
@@ -2519,7 +2543,7 @@ test('「碎片」屏先选目标物体再装填：落盘的规则带着那个�
   let tree = render();
   const targets = collectNodes(tree, node => node.props?.['data-fragment-target'] !== undefined);
   const targetGuids = targets.map(node => node.props['data-fragment-target']);
-  assert.ok(targetGuids.includes(storyCubeModule.CUBE_GUID), '方块是可以选的');
+  assert.ok(targetGuids.includes(targetGuid), '陈列物是可以选的');
   assert.ok(!targetGuids.includes(storyMapModule.MAP_GUID), '地图不在目标列表里');
   assert.ok(!targetGuids.includes(PROPHET_GUID), '先知不在目标列表里');
   // 目标列表就是「调整物体」那份列表：同一个 selectableObjects，没有第二套过滤器。
@@ -2530,9 +2554,9 @@ test('「碎片」屏先选目标物体再装填：落盘的规则带着那个�
   assert.equal(toggleOf(tree).props.disabled, true, '没选目标时装填不可用');
   assert.equal(p().fragmentToggle.value.state, 'pick-target');
 
-  // 选方块：按钮变成「装填到这个物体」，点下去之后规则带着方块的 guid 落盘。
-  const cubeEntry = p().selectableList.value.find(entry => entry.guid === storyCubeModule.CUBE_GUID);
-  p().selectFragmentTarget(cubeEntry);
+  // 选陈列物：按钮变成「装填到这个物体」，点下去之后规则带着陈列物的 guid 落盘。
+  const targetEntry = p().selectableList.value.find(entry => entry.guid === targetGuid);
+  p().selectFragmentTarget(targetEntry);
   tree = render();
   const install = toggleOf(tree);
   assert.equal(install.props.disabled, false);
@@ -2540,9 +2564,9 @@ test('「碎片」屏先选目标物体再装填：落盘的规则带着那个�
   await install.props.onClick();
   await turn(); await turn();
   assert.deepEqual(saved.at(-1), [{ fragmentId: 'sway', type: 'sway', axis: 'x',
-    amplitude: 0.25, periodMs: 2400, target: storyCubeModule.CUBE_GUID }],
+    amplitude: 0.25, periodMs: 2400, target: targetGuid }],
   '装填记录必须点名那个物体');
-  assert.equal(p().installedRules.value[0].target, storyCubeModule.CUBE_GUID);
+  assert.equal(p().installedRules.value[0].target, targetGuid);
   // 装好之后子屏显示的是这个物体上的数字，五个调整按钮都在。
   tree = render();
   const actions = collectNodes(tree, node => node.props?.['data-fragment-action'] !== undefined);

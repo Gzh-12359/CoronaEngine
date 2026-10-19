@@ -31,7 +31,7 @@ import { MAX_PLACEMENTS, PLACED_BLOCK_REACH, PLACEMENT_DISTANCE, blockSpawnTrans
 import { PROPHET_INTERACTION, prophetAvailable, prophetDistance,
   normalizeDialogue } from '../../../../../game/frontend/prophetDialogue.mjs';
 import { MONSTER_EQUIPMENT } from '../../../../../game/frontend/storyLoot.mjs';
-import { ensureStoryCube, cubeTransformOf, playerFacingYaw } from '../../../../../game/frontend/storyCube.mjs';
+import { CUBE_GUID, cubeTransformOf, playerFacingYaw } from '../../../../../game/frontend/storyCube.mjs';
 import { ensureStoryMap } from '../../../../../game/frontend/storyMap.mjs';
 import { heightAt } from '../../../../../game/frontend/storyMapHeight.mjs';
 import { loadStoryMapHeight, mapHeightUrl } from '../../../../../game/frontend/storyMapHeightLoader.mjs';
@@ -1917,19 +1917,18 @@ onMounted(async () => {
     // 先知只在小世界按需生成，主世界里缺失是正常的：交互保持不可用即可。
     prophetActor = snapshot.actors?.find(actor => actor.actor_guid === PROPHET_GUID) || null;
     playerActor = player;
-    // 先知旁的方块，以及这个小世界已经装填的世界规则（李淳珺任务）：
-    // 主世界没有先知，方块只隐藏不创建。方块只是摆设：创建失败必须仍能进世界并照常对话，
-    // 因此这里只报告、不抛出。
+    // 子世界只保留地板、玩家、先知：不再创建先知方块；旧副本里残留的方块直接删除。
+    // 主世界本来就没有 cube，不触发 remove（否则会给零写入断言的测试制造噪音）。
     try {
-      rememberCube(prophetActor && playerActor ? await ensureStoryCube({
-        api: editorApi, sceneId, frontendUrl: window.location.href,
-        role: loadedGameplay?.role, prophetActor, playerActor, resolveAsset: resolveStoryAssetPath,
-        // 方块与角色同一个地面来源：地图的烘好高度网格（没有网格时退回原来的高度）。
-        groundYAt,
-      }) : null);
+      if (loadedGameplay?.role === 'child') {
+        try {
+          await editorApi.sceneTools.removeActor(sceneId, CUBE_GUID);
+        } catch { /* 方块不存在或已删，忽略 */ }
+      }
+      rememberCube(null);
     } catch (error) {
       rememberCube(null);
-      actionFeedback.value = `物体未能创建：${error.message}`;
+      actionFeedback.value = `清理先知方块失败：${error.message}`;
     }
     installedRules.value = Array.isArray(gameplay.worldRules?.rules) ? gameplay.worldRules.rules : [];
     // 浮动需要重新读一次场景，才能把刚创建的方块也纳入；规则起不来同样不致命。
